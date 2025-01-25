@@ -1,0 +1,30 @@
+name: Daily Peanuts
+
+on:
+  schedule:
+    - cron: "0 8 * * *"  # runs at 08:00 UTC every day
+  # You can also trigger manually for testing:
+  workflow_dispatch:
+
+jobs:
+  run_daily_peanuts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run the script
+        env:
+          # Load your webhook from GitHub secrets to keep it private
+          DAILY_PEANUTS_WEBHOOK: ${{ secrets.DAILY_PEANUTS_WEBHOOK }}
+        run: |
+          python main.py
