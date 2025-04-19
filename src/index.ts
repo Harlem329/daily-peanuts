@@ -55,13 +55,8 @@ export default {
     const now = new Date(event.scheduledTime);
     const { cron } = event;
 
-    if (cron === "0 15 * * *" && isDstObserved(now)) {
-      return;
-    } else if (cron === "0 14 * * *" && !isDstObserved(now)) {
-      return;
-    }
-
-    console.log(`Checking for today's ${env.GOCOMICS_SLUG} comic...`);
+    if (cron === "0 15 * * *" && isDstObserved(now)) return;
+    if (cron === "0 14 * * *" && !isDstObserved(now)) return;
 
     const formatted = [
       now.getUTCFullYear(),
@@ -70,6 +65,8 @@ export default {
     ]
       .map(String)
       .join("/");
+
+    console.log(`Fetching comic for ${formatted}`);
 
     const url = new URL("https://web.scraper.workers.dev");
     url.searchParams.set(
@@ -82,17 +79,18 @@ export default {
 
     const response = await fetch(url);
     if (!response.ok) {
-      throw Error(`Bad response from scraper: ${response.status}`);
+      console.error("Scraper failed:", response.status);
+      throw new Error(`Scraper error: ${response.status}`);
     }
 
     const data = (await response.json()) as {
       result: Record<string, string[]>;
     };
-    console.log("Result:", data.result);
 
     if (!data.result || !data.result[selector]?.length) {
-      throw Error(
-        `No suitable data found on ${env.GOCOMICS_SLUG} page (${formatted})`,
+      console.error("No data found for selector:", selector);
+      throw new Error(
+        `No data found for ${env.GOCOMICS_SLUG} on ${formatted}`,
       );
     }
 
@@ -100,34 +98,31 @@ export default {
     let image: Blob | undefined;
 
     for (const raw of data.result[selector]) {
-      let parsed: ComicPagePayload;
       try {
-        parsed = JSON.parse(raw) as ComicPagePayload;
-      } catch {
-        continue;
-      }
-
-      if (parsed.representativeOfPage && parsed.contentUrl) {
-        console.log("Found good payload with content URL:", parsed.contentUrl);
-        const response = await fetch(parsed.contentUrl, { method: "GET" });
-        if (
-          response.ok &&
-          response.headers.get("Content-Type")?.startsWith("image/")
-        ) {
-          strip = parsed;
-          image = await response.blob();
-          break;
+        const parsed = JSON.parse(raw) as ComicPagePayload;
+        if (parsed.representativeOfPage && parsed.contentUrl) {
+          console.log("Found content URL:", parsed.contentUrl);
+          const res = await fetch(parsed.contentUrl, { method: "GET" });
+          if (
+            res.ok &&
+            res.headers.get("Content-Type")?.startsWith("image/")
+          ) {
+            strip = parsed;
+            image = await res.blob();
+            break;
+          }
         }
+      } catch {
+        console.warn("Failed to parse one script block");
       }
     }
 
     if (!strip || !image) {
-      throw Error(
-        `No suitable data found on ${env.GOCOMICS_SLUG} page (${formatted}) after ${data.result[selector].length} data scripts`,
+      throw new Error(
+        `No usable comic image found on ${env.GOCOMICS_SLUG}/${formatted}`,
       );
     }
 
-    console.log("Creating formdata");
     const form = new FormData();
     form.set(
       "payload_json",
@@ -146,6 +141,7 @@ export default {
         body: form,
       },
     );
-    console.log({ discordResponse });
+
+    console.log("Posted to Discord:", discordResponse.status);
   },
 };
