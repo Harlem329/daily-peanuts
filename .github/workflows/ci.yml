@@ -24,10 +24,6 @@ jobs:
         - uses: actions/setup-node@v3
           with:
             node-version: 18
-        - run: yarn install
-          env:
-            YARN_ENABLE_IMMUTABLE_INSTALLS: false
-        - run: yarn deploy
           env:
             CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
             CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
