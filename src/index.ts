@@ -2,7 +2,6 @@ export interface Env {
   GOCOMICS_SLUG: string;
   WEBHOOK_ID: string;
   WEBHOOK_TOKEN: string;
-  DEBUG?: string;
 }
 
 interface ComicPagePayload {
@@ -47,12 +46,6 @@ const isDstObserved = (date: Date) => {
   return today.getTimezoneOffset() < stdTimezoneOffset(today);
 };
 
-const debugLog = (env: Env, ...args: any[]) => {
-  if (env.DEBUG === "true") {
-    console.log(...args);
-  }
-};
-
 export default {
   async scheduled(
     event: ScheduledEvent,
@@ -63,14 +56,12 @@ export default {
     const { cron } = event;
 
     if (cron === "0 15 * * *" && isDstObserved(now)) {
-      debugLog(env, "Skipping due to DST mismatch (EDT)");
       return;
     } else if (cron === "0 14 * * *" && !isDstObserved(now)) {
-      debugLog(env, "Skipping due to DST mismatch (EST)");
       return;
     }
 
-    debugLog(env, `Checking for today's ${env.GOCOMICS_SLUG} comic...`);
+    console.log(`Checking for today's ${env.GOCOMICS_SLUG} comic...`);
 
     const formatted = [
       now.getUTCFullYear(),
@@ -89,33 +80,21 @@ export default {
     url.searchParams.set("selector", selector);
     url.searchParams.set("scrape", "text");
 
-    debugLog(env, "Scraping URL:", url.toString());
-    debugLog(env, "Using selector:", selector);
-
     const response = await fetch(url);
     if (!response.ok) {
       throw Error(`Bad response from scraper: ${response.status}`);
     }
 
-    const rawText = await response.text();
-    debugLog(env, "Raw scraper response:", rawText.slice(0, 500)); // trim long logs
-
-    let data: { result: Record<string, string[]> };
-    try {
-      data = JSON.parse(rawText);
-    } catch (e) {
-      console.error("Failed to parse JSON from scraper:", e);
-      throw Error("Invalid JSON from scraper");
-    }
+    const data = (await response.json()) as {
+      result: Record<string, string[]>;
+    };
+    console.log("Result:", data.result);
 
     if (!data.result || !data.result[selector]?.length) {
-      console.error("No matching selector data found. Available keys:", Object.keys(data.result));
       throw Error(
         `No suitable data found on ${env.GOCOMICS_SLUG} page (${formatted})`,
       );
     }
-
-    debugLog(env, "Number of matching data entries:", data.result[selector].length);
 
     let strip: ComicPagePayload | undefined;
     let image: Blob | undefined;
@@ -123,56 +102,42 @@ export default {
     for (const raw of data.result[selector]) {
       let parsed: ComicPagePayload;
       try {
-        parsed = JSON.parse(raw);
+        parsed = JSON.parse(raw) as ComicPagePayload;
       } catch {
-        debugLog(env, "Failed to parse script block as JSON:", raw.slice(0, 200));
         continue;
       }
 
-      debugLog(env, "[Parsed]", parsed);
-
       if (parsed.representativeOfPage && parsed.contentUrl) {
-        debugLog(env, "Found good payload with content URL:", parsed.contentUrl);
-        const imageRes = await fetch(parsed.contentUrl, { method: "GET" });
-
-        const type = imageRes.headers.get("Content-Type") || "unknown";
-        debugLog(env, "Content-Type:", type);
-
-        if (imageRes.ok && type.startsWith("image/")) {
+        console.log("Found good payload with content URL:", parsed.contentUrl);
+        const response = await fetch(parsed.contentUrl, { method: "GET" });
+        if (
+          response.ok &&
+          response.headers.get("Content-Type")?.startsWith("image/")
+        ) {
           strip = parsed;
-          image = await imageRes.blob();
+          image = await response.blob();
           break;
-        } else {
-          debugLog(env, "Invalid image or content type, skipping");
         }
       }
     }
 
     if (!strip || !image) {
       throw Error(
-        `No suitable data found on ${env.GOCOMICS_SLUG} page (${formatted}) after ${data.result[selector].length} script tags`,
+        `No suitable data found on ${env.GOCOMICS_SLUG} page (${formatted}) after ${data.result[selector].length} data scripts`,
       );
     }
 
-    const comicUrl = `https://www.gocomics.com/${env.GOCOMICS_SLUG}/${formatted}`;
-    const filename = `${formatted.replace(/\//g, "-")}.png`;
-
-    debugLog(env, "Posting to Discord with:", {
-      title: strip.name,
-      comicUrl,
-      filename,
-    });
-
+    console.log("Creating formdata");
     const form = new FormData();
     form.set(
       "payload_json",
       JSON.stringify({
-        content: `[${strip.name}](<${comicUrl}>)`,
+        content: `[${strip.name}](<https://www.gocomics.com/${env.GOCOMICS_SLUG}/${formatted}>)`,
         attachments: [{ id: 0 }],
         allowed_mentions: { parse: [] },
       }),
     );
-    form.set("files[0]", image, filename);
+    form.set("files[0]", image, `${formatted.replace(/\//g, "-")}.png`);
 
     const discordResponse = await fetch(
       `https://discord.com/api/v10/webhooks/${env.WEBHOOK_ID}/${env.WEBHOOK_TOKEN}`,
@@ -181,11 +146,6 @@ export default {
         body: form,
       },
     );
-
-    debugLog(env, "Discord response status:", discordResponse.status);
-    if (!discordResponse.ok) {
-      const errorText = await discordResponse.text();
-      console.error("Discord error response:", errorText);
-    }
+    console.log({ discordResponse });
   },
 };
