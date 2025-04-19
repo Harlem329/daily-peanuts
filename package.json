@@ -13,6 +13,6 @@
     "typescript": "^5.0.4",
     "wrangler": "^3.0.0"
   },
-  "dependencies": {}
+  "dependencies": {},
 	"packageManager": "yarn@4.5.0"
 }
