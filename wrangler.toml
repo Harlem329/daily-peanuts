@@ -1,6 +1,12 @@
 name = "daily-peanuts"
 main = "src/index.ts"
 compatibility_date = "2023-12-18"
+# wrangler.toml (wrangler v3.88.0^)
+[observability.logs]
+enabled = true
+
+
+
 
 [triggers]
 # every day at 2-3pm UTC (depends on Eastern Time DST)
