@@ -75,7 +75,7 @@ export default {
     const formatted = [
       now.getUTCFullYear(),
       now.getUTCMonth() + 1,
-      now.getUTCDate(),
+      now.getUTCDate() - 1,
     ]
       .map(String)
       .join("/");
